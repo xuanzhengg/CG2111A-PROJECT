@@ -30,29 +30,34 @@ static void sendStatus(TState state) {
 }
 
 // =============================================================
-// Pin mapping
-// IMPORTANT: rewire your hardware to match these pins
+// Pin mapping 
 // =============================================================
+// D2  <- E-Stop button circuit
+// D3  <- TCS3200 OUT
+// D22 <- TCS3200 S0
+// D23 <- TCS3200 S1
+// D24 <- TCS3200 S2
+// D25 <- TCS3200 S3
 
-// E-STOP: use Mega external interrupt INT4 on PE4
+// E-STOP on D2 = PE4 = INT4
 #define ESTOP_DDR   DDRE
 #define ESTOP_PORT  PORTE
 #define ESTOP_PINR  PINE
 #define ESTOP_BIT   PE4
 
-// TCS3200 control pins on PORTB
-#define TCS_DDR     DDRB
-#define TCS_PORT    PORTB
-#define TCS_S0_BIT  PB4
-#define TCS_S1_BIT  PB5
-#define TCS_S2_BIT  PB6
-#define TCS_S3_BIT  PB7
+// TCS3200 OUT on D3 = PE5
+#define TCS_OUT_DDR   DDRE
+#define TCS_OUT_PORT  PORTE
+#define TCS_OUT_PINR  PINE
+#define TCS_OUT_BIT   PE5
 
-// TCS3200 OUT pin on PK0
-#define TCS_OUT_DDR   DDRK
-#define TCS_OUT_PORT  PORTK
-#define TCS_OUT_PINR  PINK
-#define TCS_OUT_BIT   PK0
+// TCS3200 S0/S1/S2/S3 on D22/D23/D24/D25 = PA0/PA1/PA2/PA3
+#define TCS_CTRL_DDR   DDRA
+#define TCS_CTRL_PORT  PORTA
+#define TCS_S0_BIT     PA0   // D22
+#define TCS_S1_BIT     PA1   // D23
+#define TCS_S2_BIT     PA2   // D24
+#define TCS_S3_BIT     PA3   // D25
 
 // =============================================================
 // E-Stop state machine
@@ -92,8 +97,8 @@ static inline uint8_t readTcsOut(void) {
 }
 
 static void setTcsFilter(uint8_t s2High, uint8_t s3High) {
-    writeBit(TCS_PORT, TCS_S2_BIT, s2High);
-    writeBit(TCS_PORT, TCS_S3_BIT, s3High);
+    writeBit(TCS_CTRL_PORT, TCS_S2_BIT, s2High);
+    writeBit(TCS_CTRL_PORT, TCS_S3_BIT, s3High);
 }
 
 static uint32_t measureChannelHz(uint8_t s2High, uint8_t s3High) {
@@ -114,9 +119,9 @@ static uint32_t measureChannelHz(uint8_t s2High, uint8_t s3High) {
 }
 
 static void readColorChannels(uint32_t *r, uint32_t *g, uint32_t *b) {
-    *r = measureChannelHz(0, 0);
-    *g = measureChannelHz(1, 1);
-    *b = measureChannelHz(0, 1);
+    *r = measureChannelHz(0, 0); // red
+    *g = measureChannelHz(1, 1); // green
+    *b = measureChannelHz(0, 1); // blue
 }
 
 // =============================================================
@@ -178,16 +183,18 @@ void setup() {
     Serial.begin(9600);
 #endif
 
-    // TCS3200 pins
-    TCS_DDR |= (1 << TCS_S0_BIT) | (1 << TCS_S1_BIT) | (1 << TCS_S2_BIT) | (1 << TCS_S3_BIT);
+    // TCS3200 control pins: D22-D25 = PA0-PA3
+    TCS_CTRL_DDR |= (1 << TCS_S0_BIT) | (1 << TCS_S1_BIT) | (1 << TCS_S2_BIT) | (1 << TCS_S3_BIT);
+
+    // TCS3200 OUT pin: D3 = PE5 input
     TCS_OUT_DDR &= ~(1 << TCS_OUT_BIT);
     TCS_OUT_PORT &= ~(1 << TCS_OUT_BIT);
 
     // Required 20% scaling: S0 = HIGH, S1 = LOW
-    TCS_PORT |= (1 << TCS_S0_BIT);
-    TCS_PORT &= ~(1 << TCS_S1_BIT);
+    TCS_CTRL_PORT |= (1 << TCS_S0_BIT);
+    TCS_CTRL_PORT &= ~(1 << TCS_S1_BIT);
 
-    // E-stop input, no internal pull-up
+    // E-Stop input: D2 = PE4 input
     ESTOP_DDR &= ~(1 << ESTOP_BIT);
     ESTOP_PORT &= ~(1 << ESTOP_BIT);
 
