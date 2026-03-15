@@ -18,7 +18,7 @@
  *                      machine, color sensor, setup(), and loop().
  */
 
-#include "packets.h"
+#include "packetsnick_new.h"
 #include "serial_driver.h"
 
 
