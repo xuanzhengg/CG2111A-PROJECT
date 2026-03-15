@@ -153,19 +153,17 @@ def render_to_cli(grid):
 
 def convert_to_cartesian(angles, distances):
     """
-    Convert the scanAngles and scanDistances into X and Y coordinates
-    Hint, Pythagoras' theorem can be used to convert polar to cartesian coordinates
-    We've provided you with the value of PI
+    Convert polar LiDAR data (angle in degrees, distance in mm)
+    into Cartesian X/Y coordinates.
     """
     VAL_PI = np.pi
 
     Xs = []
     Ys = []
     for angle, distance in zip(angles, distances):
-        # TODO: Fill in the code to convert the polar coordinates to cartesian coordinates
-        # Hint, Pythagoras' theorem can be used to convert polar to cartesian coordinates
-        cartesian_X = 0  # REPLACE ME with the correct formula
-        cartesian_Y = 0  # REPLACE ME with the correct formula
+        theta = angle * VAL_PI / 180.0
+        cartesian_X = distance * np.cos(theta)
+        cartesian_Y = distance * np.sin(theta)
 
         Xs.append(cartesian_X)
         Ys.append(cartesian_Y)
