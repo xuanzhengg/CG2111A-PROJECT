@@ -2,18 +2,6 @@
 """
 Studio 13: Sensor Mini-Project
 Raspberry Pi Sensor Interface — pi_sensor.py
-
-Extends the communication framework from Studio 12 with:
-  - Magic number + checksum framing for reliable packet delivery
-  - A command-line interface that reads user commands while displaying
-    live Arduino data
-
-Packet framing format (103 bytes total):
-  MAGIC (2 B) | TPacket (100 B) | CHECKSUM (1 B)
-
-Usage:
-  source env/bin/activate
-  python3 pi_sensor.py
 """
 
 import struct
@@ -29,22 +17,19 @@ from alex_camera import (
     renderGreyscaleFrame,
 )
 
-from lidar import alex_lidar
 from lidar_example_cli_plot import plot_single_scan
-
 
 # ----------------------------------------------------------------
 # SERIAL PORT SETUP
 # ----------------------------------------------------------------
 
-PORT     = "/dev/ttyACM0"
+PORT = "/dev/ttyACM0"
 BAUDRATE = 9600
 
 _ser = None
 
 
 def openSerial():
-    """Open the serial port and wait for the Arduino to boot."""
     global _ser
     _ser = serial.Serial(PORT, BAUDRATE, timeout=5)
     print(f"Opened {PORT} at {BAUDRATE} baud. Waiting for Arduino...")
@@ -53,7 +38,6 @@ def openSerial():
 
 
 def closeSerial():
-    """Close the serial port."""
     global _ser
     if _ser and _ser.is_open:
         _ser.close()
@@ -61,40 +45,33 @@ def closeSerial():
 
 # ----------------------------------------------------------------
 # TPACKET CONSTANTS
-# (must match sensor_miniproject_template.ino / packets.h)
 # ----------------------------------------------------------------
 
-PACKET_TYPE_COMMAND  = 0
+PACKET_TYPE_COMMAND = 0
 PACKET_TYPE_RESPONSE = 1
-PACKET_TYPE_MESSAGE  = 2
+PACKET_TYPE_MESSAGE = 2
 
-COMMAND_ESTOP  = 0
-COMMAND_COLOR  = 1
+COMMAND_ESTOP = 0
+COMMAND_COLOR = 1
 
-RESP_OK     = 0
+RESP_OK = 0
 RESP_STATUS = 1
-RESP_COLOR  = 2
+RESP_COLOR = 2
 
 STATE_RUNNING = 0
 STATE_STOPPED = 1
 
-MAX_STR_LEN  = 32
+MAX_STR_LEN = 32
 PARAMS_COUNT = 16
 
-TPACKET_SIZE = 1 + 1 + 2 + MAX_STR_LEN + (PARAMS_COUNT * 4)  # = 100
-TPACKET_FMT  = f'<BB2x{MAX_STR_LEN}s{PARAMS_COUNT}I'
+TPACKET_SIZE = 1 + 1 + 2 + MAX_STR_LEN + (PARAMS_COUNT * 4)
+TPACKET_FMT = f'<BB2x{MAX_STR_LEN}s{PARAMS_COUNT}I'
 
-
-# ----------------------------------------------------------------
-# RELIABLE FRAMING: magic number + XOR checksum
-# ----------------------------------------------------------------
-
-MAGIC      = b'\xDE\xAD'
-FRAME_SIZE = len(MAGIC) + TPACKET_SIZE + 1   # 103 bytes
+MAGIC = b'\xDE\xAD'
+FRAME_SIZE = len(MAGIC) + TPACKET_SIZE + 1
 
 
 def computeChecksum(data: bytes) -> int:
-    """Return the XOR of all bytes in data."""
     result = 0
     for byte in data:
         result ^= byte
@@ -102,47 +79,39 @@ def computeChecksum(data: bytes) -> int:
 
 
 def packFrame(packetType, command, data=b'', params=None):
-    """Build a framed packet: MAGIC | TPacket bytes | checksum."""
     if params is None:
         params = [0] * PARAMS_COUNT
     data_padded = (data + b'\x00' * MAX_STR_LEN)[:MAX_STR_LEN]
-    packet_bytes = struct.pack(TPACKET_FMT, packetType, command,
-                               data_padded, *params)
+    packet_bytes = struct.pack(TPACKET_FMT, packetType, command, data_padded, *params)
     checksum = computeChecksum(packet_bytes)
     return MAGIC + packet_bytes + bytes([checksum])
 
 
 def unpackTPacket(raw):
-    """Deserialise a 100-byte TPacket into a dict."""
     fields = struct.unpack(TPACKET_FMT, raw)
     return {
         'packetType': fields[0],
-        'command':    fields[1],
-        'data':       fields[2],
-        'params':     list(fields[3:]),
+        'command': fields[1],
+        'data': fields[2],
+        'params': list(fields[3:]),
     }
 
 
 def receiveFrame():
-    """
-    Read bytes from the serial port until a valid framed packet is found.
-    Synchronises on the magic number, reads the TPacket body, then
-    validates the checksum.  Returns a packet dict or None on timeout.
-    """
-    MAGIC_HI = MAGIC[0]
-    MAGIC_LO = MAGIC[1]
+    magic_hi = MAGIC[0]
+    magic_lo = MAGIC[1]
 
     while True:
         b = _ser.read(1)
         if not b:
             return None
-        if b[0] != MAGIC_HI:
+        if b[0] != magic_hi:
             continue
 
         b = _ser.read(1)
         if not b:
             return None
-        if b[0] != MAGIC_LO:
+        if b[0] != magic_lo:
             continue
 
         raw = b''
@@ -156,15 +125,13 @@ def receiveFrame():
         if not cs_byte:
             return None
         if cs_byte[0] != computeChecksum(raw):
-            continue   # bad checksum: resync
+            continue
 
         return unpackTPacket(raw)
 
 
 def sendCommand(commandType, data=b'', params=None):
-    """Send a framed COMMAND packet to the Arduino."""
-    frame = packFrame(PACKET_TYPE_COMMAND, commandType,
-                      data=data, params=params)
+    frame = packFrame(PACKET_TYPE_COMMAND, commandType, data=data, params=params)
     _ser.write(frame)
 
 
@@ -176,7 +143,6 @@ _estop_state = STATE_RUNNING
 
 
 def isEstopActive():
-    """Return True if the E-Stop is currently active (system stopped)."""
     return _estop_state == STATE_STOPPED
 
 
@@ -185,17 +151,10 @@ def isEstopActive():
 # ----------------------------------------------------------------
 
 def printPacket(pkt):
-    """
-    Print a received TPacket in human-readable form.
-
-    RESP_STATUS   -> updates local E-Stop state and prints RUNNING/STOPPED.
-    RESP_COLOR    -> prints R/G/B channel frequencies in Hz.
-    PACKET_TYPE_MESSAGE -> prints the Arduino debug string.
-    Any non-empty data field is printed as an Arduino debug message.
-    """
     global _estop_state
+
     ptype = pkt['packetType']
-    cmd   = pkt['command']
+    cmd = pkt['command']
 
     if ptype == PACKET_TYPE_RESPONSE:
         if cmd == RESP_OK:
@@ -218,7 +177,6 @@ def printPacket(pkt):
         else:
             print(f"Response: unknown command {cmd}")
 
-        # Print optional Arduino debug string embedded in any response packet.
         debug = pkt['data'].rstrip(b'\x00').decode('ascii', errors='replace')
         if debug:
             print(f"Arduino debug: {debug}")
@@ -236,12 +194,6 @@ def printPacket(pkt):
 # ----------------------------------------------------------------
 
 def handleColorCommand():
-    """
-    Check E-Stop, then send a COMMAND_COLOR packet to the Arduino.
-    The Arduino will reply with a RESP_COLOR packet containing
-    R, G, B channel frequencies in Hz in params[0..2].
-    printPacket() handles displaying the response when it arrives.
-    """
     if isEstopActive():
         print("Refused: E-Stop is active")
         return
@@ -254,18 +206,16 @@ def handleColorCommand():
 # ACTIVITY 3: CAMERA
 # ----------------------------------------------------------------
 
-_camera          = None
+_camera = None
 _frames_remaining = 5
 
 
 def openCamera():
-    """Open the Raspberry Pi camera at startup."""
     global _camera
     _camera = cameraOpen()
 
 
 def closeCamera():
-    """Close the Raspberry Pi camera on exit."""
     global _camera
     if _camera is not None:
         cameraClose(_camera)
@@ -273,15 +223,6 @@ def closeCamera():
 
 
 def handleCameraCommand():
-    """
-    Capture and display one greyscale frame from the Pi camera.
-
-    Order of checks (handout requirement):
-      1. E-Stop gate  — refuse if system is stopped.
-      2. Frames gate  — refuse if no frames remain.
-      3. Capture and render the frame using alex_camera.py (unmodified).
-      4. Decrement the counter and display frames remaining.
-    """
     global _frames_remaining
 
     if isEstopActive():
@@ -303,29 +244,12 @@ def handleCameraCommand():
 # ----------------------------------------------------------------
 
 def handleLidarCommand():
-    """
-    Perform a single LIDAR scan and render it in the terminal.
-
-    Uses alex_lidar.py (connect → scan → disconnect) and
-    lidar_example_cli_plot.plot_single_scan() for rendering.
-    E-Stop gate comes first.
-
-    Note: complete convert_to_cartesian() in lidar_example_cli_plot.py
-    before calling this — the plot will not render correctly without it.
-    """
     if isEstopActive():
         print("Refused: E-Stop is active")
         return
 
     print("Starting single LIDAR scan...")
-
-    lidar = alex_lidar.connectLidar()
-    try:
-        scan = alex_lidar.getSingleScan(lidar)
-    finally:
-        alex_lidar.disconnectLidar(lidar)
-
-    plot_single_scan(scan)
+    plot_single_scan()
 
 
 # ----------------------------------------------------------------
@@ -333,14 +257,6 @@ def handleLidarCommand():
 # ----------------------------------------------------------------
 
 def handleUserInput(line):
-    """
-    Dispatch a single line of user input to the correct handler.
-
-      e  -> software E-Stop (pre-wired)
-      c  -> color sensor reading        (Activity 2)
-      p  -> camera capture              (Activity 3)
-      l  -> LIDAR scan                  (Activity 4)
-    """
     if line == 'e':
         print("Sending E-Stop command...")
         sendCommand(COMMAND_ESTOP, data=b'This is a debug message')
@@ -355,14 +271,6 @@ def handleUserInput(line):
 
 
 def runCommandInterface():
-    """
-    Main command loop.
-
-    Uses select.select() to simultaneously:
-      - poll the serial port for incoming Arduino packets, and
-      - read typed user commands from stdin,
-    without either blocking the other.
-    """
     print("Sensor interface ready. Type e / c / p / l and press Enter.")
     print("Press Ctrl+C to exit.\n")
 
@@ -375,17 +283,11 @@ def runCommandInterface():
         rlist, _, _ = select.select([sys.stdin], [], [], 0)
         if rlist:
             line = sys.stdin.readline().strip().lower()
-            if not line:
-                time.sleep(0.05)
-                continue
-            handleUserInput(line)
+            if line:
+                handleUserInput(line)
 
         time.sleep(0.05)
 
-
-# ----------------------------------------------------------------
-# MAIN
-# ----------------------------------------------------------------
 
 if __name__ == '__main__':
     openSerial()
