@@ -22,7 +22,7 @@
 
 #include <avr/interrupt.h>
 #include <string.h>
-#include "packets.h"
+#include "packetsnick_new.h"
 
 // =============================================================
 // TODO (Activity 1, step 2): change this to 1 once txEnqueue(),
